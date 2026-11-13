@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AR BioQuest: สิ่งมีชีวิตและกระบวนการดำรงชีวิต</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      font-family: 'Kanit', sans-serif;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+      background: #060d1f;
+      color: #f8fafc;
+      min-height: 100vh;
+    }
+
+    /* AR Camera & Virtual Lab Background */
+    #ar-video {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 0;
+      opacity: 0.72;
+      transition: opacity 0.5s ease;
+    }
+
+    #virtual-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background: radial-gradient(circle at 20% 20%, #0f294a 0%, #071326 45%, #030712 100%);
+      overflow: hidden;
+    }
+
+    /* AR Corner Reticles */
+    .ar-reticle {
+      position: fixed;
+      width: 36px;
+      height: 36px;
+      border-color: rgba(34, 211, 238, 0.65);
+      z-index: 2;
+      pointer-events: none;
+    }
+    .ar-tl { top: 12px; left: 12px; border-top: 3px solid; border-left: 3px solid; border-radius: 6px 0 0 0; }
+    .ar-tr { top: 12px; right: 12px; border-top: 3px solid; border-right: 3px solid; border-radius: 0 6px 0 0; }
+    .ar-bl { bottom: 12px; left: 12px; border-bottom: 3px solid; border-left: 3px solid; border-radius: 0 0 0 6px; }
+    .ar-br { bottom: 12px; right: 12px; border-bottom: 3px solid; border-right: 3px solid; border-radius: 0 0 6px 0; }
+
+    /* Glassmorphism Hologram Cards */
+    .holo-panel {
+      background: rgba(10, 22, 46, 0.78);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      box-shadow: 0 8px 32px rgba(2, 132, 199, 0.25), inset 0 0 20px rgba(56, 189, 248, 0.08);
+    }
+
+    .holo-btn {
+      background: rgba(15, 35, 70, 0.72);
+      border: 1.5px solid rgba(56, 189, 248, 0.35);
+      transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .holo-btn:hover:not(:disabled) {
+      background: rgba(14, 116, 144, 0.45);
+      border-color: #38bdf8;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 18px rgba(56, 189, 248, 0.35);
+    }
+
+    .holo-btn:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    .option-correct {
+      background: rgba(16, 185, 129, 0.32) !important;
+      border-color: #10b981 !important;
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.45) !important;
+    }
+
+    .option-wrong {
+      background: rgba(239, 68, 68, 0.32) !important;
+      border-color: #ef4444 !important;
+      box-shadow: 0 0 20px rgba(239, 68, 68, 0.45) !important;
+    }
+
+    /* Floating AR Hologram Animation */
+    @keyframes floatHolo {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-8px) rotate(1.5deg); }
+    }
+
+    .ar-float {
+      animation: floatHolo 4.5s ease-in-out infinite;
+    }
+
+    @keyframes popScore {
+      0% { transform: scale(0.5) translateY(10px); opacity: 0; }
+      60% { transform: scale(1.15) translateY(-5px); opacity: 1; }
+      100% { transform: scale(1) translateY(0); opacity: 1; }
+    }
+
+    .score-pop {
+      animation: popScore 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.4); border-radius: 999px; }
+  </style>
+</head>
+<body class="select-none">
+
+  <!-- Background Layers -->
+  <div id="virtual-bg"></div>
+  <video id="ar-video" autoplay playsinline muted class="hidden"></video>
+
+  <!-- AR HUD Corner Reticles -->
+  <div class="ar-reticle ar-tl"></div>
+  <div class="ar-reticle ar-tr"></div>
+  <div class="ar-reticle ar-bl"></div>
+  <div class="ar-reticle ar-br"></div>
+
+  <!-- Main App Container -->
+  <div class="relative z-10 min-h-screen flex flex-col justify-between max-w-3xl mx-auto px-4 py-4 md:py-6">
+
+    <!-- Top AR Status Bar -->
+    <header class="flex items-center justify-between gap-2 mb-3">
+      <div class="flex items-center gap-2 holo-panel px-3 py-1.5 rounded-full text-xs md:text-sm">
+        <span id="ar-status-dot" class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+        <span id="ar-status-text" class="font-medium text-cyan-200">AR Holo-Lab พร้อมใช้งาน</span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="toggle-camera-btn" onclick="toggleARCamera()" class="holo-panel hover:bg-cyan-900/50 text-cyan-200 px-3 py-1.5 rounded-full text-xs md:text-sm flex items-center gap-1.5 transition cursor-pointer">
+          <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          <span id="camera-btn-label">เปิดกล้อง AR</span>
+        </button>
+
+        <button id="toggle-sound-btn" onclick="toggleSound()" class="holo-panel hover:bg-cyan-900/50 text-cyan-200 p-1.5 rounded-full transition cursor-pointer" title="เปิด/ปิดเสียงเอฟเฟกต์">
+          <svg id="sound-on-icon" class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+          </svg>
+          <svg id="sound-off-icon" class="w-4 h-4 text-rose-400 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ================= SCREEN 1: START MENU ================= -->
+    <main id="start-screen" class="my-auto">
+      <div class="holo-panel rounded-3xl p-6 md:p-8 relative overflow-hidden text-center">
+
+        <!-- AR Floating Cell Hologram Preview -->
+        <div class="flex justify-center gap-6 mb-5 ar-float">
+          <!-- Animal Cell SVG -->
+          <div class="flex flex-col items-center">
+            <svg class="w-20 h-20 md:w-24 md:h-24 drop-shadow-[0_0_12px_rgba(56,189,248,0.6)]" viewBox="0 0 120 120">
+              <path d="M60,12 C88,10 110,32 108,60 C106,88 86,108 58,108 C30,108 10,86 12,58 C14,30 32,14 60,12 Z" fill="rgba(56,189,248,0.22)" stroke="#38bdf8" stroke-width="3"/>
+              <circle cx="58" cy="58" r="18" fill="rgba(168,85,247,0.45)" stroke="#c084fc" stroke-width="2.5"/>
+              <circle cx="58" cy="58" r="7" fill="#e879f9"/>
+              <ellipse cx="32" cy="45" rx="9" ry="5" transform="rotate(-30 32 45)" fill="rgba(251,146,60,0.6)" stroke="#fb923c" stroke-width="1.5"/>
+              <ellipse cx="82" cy="74" rx="9" ry="5" transform="rotate(25 82 74)" fill="rgba(251,146,60,0.6)" stroke="#fb923c" stroke-width="1.5"/>
+              <circle cx="78" cy="36" r="4" fill="#34d399"/>
+              <circle cx="38" cy="78" r="5" fill="#f472b6"/>
+            </svg>
+            <span class="text-[11px] text-cyan-300 mt-1 bg-cyan-950/70 px-2 py-0.5 rounded-full border border-cyan-500/30">เซลล์สัตว์</span>
+          </div>
+
+          <!-- Plant Cell SVG -->
+          <div class="flex flex-col items-center">
+            <svg class="w-20 h-20 md:w-24 md:h-24 drop-shadow-[0_0_12px_rgba(16,185,129,0.6)]" viewBox="0 0 120 120">
+              <polygon points="28,12 92,12 108,35 108,85 92,108 28,108 12,85 12,35" fill="rgba(16,185,129,0.18)" stroke="#10b981" stroke-width="4"/>
+              <polygon points="32,18 88,18 102,38 102,82 88,102 32,102 18,82 18,38" fill="rgba(52,211,153,0.15)" stroke="#6ee7b7" stroke-width="1.5"/>
+              <!-- Large Vacuole -->
+              <ellipse cx="66" cy="64" rx="22" ry="26" fill="rgba(56,189,248,0.35)" stroke="#7dd3fc" stroke-width="2"/>
+              <!-- Nucleus -->
+              <circle cx="36" cy="42" r="12" fill="rgba(168,85,247,0.55)" stroke="#c084fc" stroke-width="2"/>
+              <!-- Chloroplasts -->
+              <ellipse cx="34" cy="76" rx="9" ry="5" fill="#22c55e" stroke="#bbf7d0" stroke-width="1.2"/>
+              <ellipse cx="78" cy="30" rx="9" ry="5" fill="#22c55e" stroke="#bbf7d0" stroke-width="1.2"/>
+            </svg>
+            <span class="text-[11px] text-emerald-300 mt-1 bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-500/30">เซลล์พืช</span>
+          </div>
+        </div>
+
+        <div class="inline-block px-3 py-1 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-xs font-semibold tracking-wider mb-2">
+          AR SCIENCE CHALLENGE
+        </div>
+        <h1 class="text-2xl md:text-4xl font-bold bg-gradient-to-r from-cyan-300 via-sky-200 to-emerald-300 bg-clip-text text-transparent mb-2">
+          สิ่งมีชีวิตและกระบวนการดำรงชีวิต
+        </h1>
+        <p class="text-slate-300 text-sm md:text-base max-w-xl mx-auto mb-6 leading-relaxed">
+          สแกนวัตถุเสมือนจริงและพิชิตภารกิจตอบคำถามวิทยาศาสตร์ 20 ข้อ ไล่ระดับความท้าทายจากง่ายไปยาก!
+        </p>
+
+        <!-- Game Rules Grid -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 text-left mb-6">
+          <div class="bg-slate-900/70 border border-cyan-500/25 rounded-2xl p-3">
+            <div class="text-cyan-400 font-bold text-lg">20 ข้อ</div>
+            <div class="text-xs text-slate-300">4 ตัวเลือก ไล่ระดับง่าย → ยาก</div>
+          </div>
+          <div class="bg-slate-900/70 border border-amber-500/25 rounded-2xl p-3">
+            <div class="text-amber-400 font-bold text-lg">60 วิ/ข้อ</div>
+            <div class="text-xs text-slate-300">จับเวลาทุกข้อ ตอบไวยิ่งได้โบนัส</div>
+          </div>
+          <div class="bg-slate-900/70 border border-emerald-500/25 rounded-2xl p-3">
+            <div class="text-emerald-400 font-bold text-lg">+โบนัส</div>
+            <div class="text-xs text-slate-300">โบนัสความไว + คอมโบตอบถูกติดกัน</div>
+          </div>
+          <div class="bg-slate-900/70 border border-purple-500/25 rounded-2xl p-3">
+            <div class="text-purple-400 font-bold text-lg">สุ่มใหม่</div>
+            <div class="text-xs text-slate-300">สลับลำดับข้อและตัวเลือกทุกครั้ง</div>
+          </div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <button onclick="startGame(true)" class="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold text-base md:text-lg shadow-[0_0_25px_rgba(34,211,238,0.5)] transition transform hover:scale-105 cursor-pointer flex items-center justify-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            เริ่มภารกิจพร้อมเปิดกล้อง AR
+          </button>
+
+          <button onclick="startGame(false)" class="w-full sm:w-auto px-6 py-3.5 rounded-2xl holo-btn text-cyan-200 font-semibold text-base cursor-pointer">
+            เล่นในโหมดจำลอง 3D
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ================= SCREEN 2: QUIZ GAMEPLAY ================= -->
+    <main id="quiz-screen" class="hidden my-auto space-y-3">
+      <!-- Top HUD: Progress, Score, Streak, Timer -->
+      <div class="holo-panel rounded-2xl p-3.5 md:p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+          <div class="flex items-center gap-2">
+            <span class="bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 font-bold px-3 py-1 rounded-xl text-sm">
+              ข้อที่ <span id="q-current">1</span> / 20
+            </span>
+            <span id="difficulty-badge" class="px-2.5 py-1 rounded-xl text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+              ระดับ 1: พื้นฐาน
+            </span>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <!-- Streak Badge -->
+            <div id="streak-container" class="flex items-center gap-1 bg-amber-500/20 border border-amber-400/40 px-2.5 py-1 rounded-xl text-xs font-bold text-amber-300">
+              <span>🔥 คอมโบ</span>
+              <span id="streak-count">0</span>
+            </div>
+
+            <!-- Score Display -->
+            <div class="bg-slate-900/80 border border-cyan-400/30 px-3 py-1 rounded-xl text-right">
+              <span class="text-[10px] text-slate-400 block leading-none">คะแนนรวม</span>
+              <span id="live-score" class="text-base md:text-lg font-bold text-cyan-300 leading-tight">0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 60-Second Timer Bar -->
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-1.5 min-w-[76px]">
+            <svg id="timer-icon" class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span id="timer-text" class="font-bold text-sm text-cyan-200">01:00</span>
+          </div>
+          <div class="flex-1 h-2.5 bg-slate-900/90 rounded-full overflow-hidden border border-slate-700/70">
+            <div id="timer-bar" class="h-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-sky-400 transition-all duration-300" style="width: 100%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AR Hologram Specimen Stage + Question Card -->
+      <div class="holo-panel rounded-3xl p-5 md:p-6 relative overflow-hidden">
+
+        <!-- Floating AR Specimen Graphic -->
+        <div class="flex flex-col md:flex-row items-center gap-4 mb-5">
+          <div id="ar-specimen-box" class="w-28 h-28 md:w-32 md:h-32 shrink-0 rounded-2xl bg-slate-950/60 border border-cyan-400/30 flex items-center justify-center p-2 ar-float relative">
+            <span class="absolute top-1.5 left-2 text-[9px] font-mono text-cyan-400/80">AR-SCAN</span>
+            <div id="ar-specimen-svg" class="w-full h-full flex items-center justify-center"></div>
+          </div>
+
+          <div class="flex-1 text-center md:text-left">
+            <div id="topic-tag" class="text-xs text-cyan-400 font-medium mb-1">หมวด: โครงสร้างพื้นฐานของเซลล์</div>
+            <h2 id="question-text" class="text-lg md:text-xl font-semibold text-white leading-snug">
+              กำลังโหลดคำถาม...
+            </h2>
+          </div>
+        </div>
+
+        <!-- 4 Multiple Choice Options -->
+        <div id="options-container" class="grid grid-cols-1 gap-3">
+          <!-- Buttons injected dynamically -->
+        </div>
+
+        <!-- Instant Feedback & Bonus Popup Banner -->
+        <div id="feedback-box" class="hidden mt-4 p-4 rounded-2xl border transition-all">
+          <div class="flex items-start justify-between gap-2 mb-1.5">
+            <div id="feedback-title" class="font-bold text-base"></div>
+            <div id="bonus-earned-badge" class="hidden px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-400 text-slate-950 score-pop"></div>
+          </div>
+          <p id="feedback-rationale" class="text-sm text-slate-200 leading-relaxed mb-3"></p>
+          <div class="flex justify-end">
+            <button id="next-btn" onclick="nextQuestion()" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-bold text-sm hover:brightness-110 transition cursor-pointer flex items-center gap-1.5">
+              <span id="next-btn-text">ข้อถัดไป</span>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ================= SCREEN 3: SUMMARY & RESULTS ================= -->
+    <main id="summary-screen" class="hidden my-auto space-y-4">
+      <div class="holo-panel rounded-3xl p-6 md:p-8 text-center relative overflow-hidden">
+
+        <div id="rank-badge" class="inline-block px-4 py-1 rounded-full bg-amber-400/20 border border-amber-400/50 text-amber-300 text-xs font-bold tracking-wider mb-2">
+          ภารกิจเสร็จสมบูรณ์!
+        </div>
+        <h2 id="rank-title" class="text-2xl md:text-3xl font-bold text-white mb-1">
+          สุดยอดนักชีววิทยา AR!
+        </h2>
+        <p id="rank-subtitle" class="text-sm text-slate-300 mb-5">
+          สรุปผลการทดสอบเรื่อง สิ่งมีชีวิตและกระบวนการดำรงชีวิต
+        </p>
+
+        <!-- Total Score Highlight -->
+        <div class="bg-slate-950/70 border border-cyan-400/40 rounded-2xl p-4 mb-5 max-w-md mx-auto">
+          <div class="text-xs text-cyan-300 uppercase tracking-wider">คะแนนรวมทั้งหมด (คะแนนฐาน + โบนัส)</div>
+          <div id="final-total-score" class="text-4xl md:text-5xl font-extrabold bg-gradient-to-r from-cyan-300 via-amber-300 to-emerald-300 bg-clip-text text-transparent my-1">
+            0
+          </div>
+          <div class="flex justify-center gap-4 text-xs text-slate-300 mt-2 pt-2 border-t border-slate-800">
+            <span>คะแนนตอบถูก: <strong id="final-base-score" class="text-white">0</strong></span>
+            <span>•</span>
+            <span>คะแนนโบนัส: <strong id="final-bonus-score" class="text-amber-400">+0</strong></span>
+          </div>
+        </div>
+
+        <!-- Stats Breakdown -->
+        <div class="grid grid-cols-3 gap-2.5 mb-5">
+          <div class="bg-slate-900/75 border border-emerald-500/30 rounded-2xl p-3">
+            <div class="text-xs text-slate-400">ตอบถูก</div>
+            <div class="text-xl font-bold text-emerald-400"><span id="final-correct">0</span>/20</div>
+          </div>
+          <div class="bg-slate-900/75 border border-amber-500/30 rounded-2xl p-3">
+            <div class="text-xs text-slate-400">คอมโบสูงสุด</div>
+            <div class="text-xl font-bold text-amber-400"><span id="final-max-streak">0</span> ข้อ</div>
+          </div>
+          <div class="bg-slate-900/75 border border-sky-500/30 rounded-2xl p-3">
+            <div class="text-xs text-slate-400">เวลาเฉลี่ย/ข้อ</div>
+            <div class="text-xl font-bold text-sky-400"><span id="final-avg-time">0</span> วิ</div>
+          </div>
+        </div>
+
+        <!-- Difficulty Tier Performance -->
+        <div class="bg-slate-900/60 border border-slate-700/70 rounded-2xl p-4 mb-6 text-left">
+          <h3 class="text-xs font-bold text-cyan-300 uppercase tracking-wider mb-2.5">ผลการประเมินตามระดับความยาก</h3>
+          <div id="tier-breakdown" class="space-y-2 text-xs"></div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <button onclick="restartGame()" class="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold text-base shadow-[0_0_20px_rgba(34,211,238,0.45)] transition transform hover:scale-105 cursor-pointer flex items-center justify-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            เข้าสอบใหม่ (สลับข้อและตัวเลือก)
+          </button>
+
+          <button onclick="toggleReviewList()" class="w-full sm:w-auto px-6 py-3.5 rounded-2xl holo-btn text-cyan-200 font-semibold text-base cursor-pointer">
+            ดูเฉลยละเอียดทั้งหมด (20 ข้อ)
+          </button>
+        </div>
+      </div>
+
+      <!-- Detailed Answer Review Section -->
+      <div id="review-section" class="hidden holo-panel rounded-3xl p-5 md:p-6 space-y-3">
+        <h3 class="text-lg font-bold text-cyan-300 border-b border-slate-700 pb-2">เฉลยและคำอธิบายรายข้อ</h3>
+        <div id="review-list" class="space-y-3 max-h-[60vh] overflow-y-auto pr-1"></div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center text-[11px] text-slate-400/80 mt-4">
+      AR BioQuest • สิ่งมีชีวิตและกระบวนการดำรงชีวิต (20 ข้อ ไล่ระดับความยาก)
+    </footer>
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. SVG AR HOLOGRAM SPECIMENS
+    // ==========================================
+    const SPECIMENS = {
+      cell_basic: `
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <circle cx="50" cy="50" r="38" fill="rgba(56,189,248,0.2)" stroke="#38bdf8" stroke-width="3" stroke-dasharray="6 3"/>
+          <circle cx="50" cy="50" r="26" fill="rgba(14,165,233,0.25)" stroke="#7dd3fc" stroke-width="2"/>
+          <circle cx="50" cy="50" r="10" fill="#c084fc"/>
+          <circle cx="34" cy="38" r="3" fill="#34d399"/>
+          <circle cx="66" cy="62" r="3.5" fill="#fb923c"/>
+        </svg>`,
+      unicellular: `
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <path d="M25,45 C15,30 35,15 50,25 C65,12 85,28 75,45 C88,60 72,85 52,75 C35,88 15,70 25,45 Z" fill="rgba(34,211,238,0.25)" stroke="#22d3ee" stroke-width="2.5"/>
+          <circle cx="48" cy="48" r="9" fill="#a855f7" stroke="#e9d5ff" stroke-width="1.5"/>
+          <circle cx="62" cy="38" r="4" fill="#34d399"/>
+          <circle cx="36" cy="60" r="5" fill="#38bdf8"/>
+        </svg>`,
+      multicellular: `
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <polygon points="35,20 65,20 75,45 50,60 25,45" fill="rgba(16,185,129,0.25)" stroke="#10b981" stroke-width="2"/>
+          <polygon points="25,45 50,60 40,85 15,75" fill="rgba(56,189,248,0.25)" stroke="#38bdf8" stroke-width="2"/>
+          <polygon points="50,60 75,45 85,75 60,85" fill="rgba(168,85,247,0.25)" stroke="#c084fc" stroke-width="2"/>
+          <circle cx="50" cy="38" r="4" fill="#34d399"/>
+          <circle cx="33" cy="66" r="4" fill="#38bdf8"/>
+          <circle cx="67" cy="66" r="4" fill="#c084fc"/>
+        </svg>`,
+      animal_cell: `
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <path d="M50,12 C76,10 90,28 88,52 C86,76 70,90 48,88 C24,86 10,70 12,48 C14,26 26,14 50,12 Z" fill="rgba(56,189,248,0.22)" stroke="#38bdf8" stroke-width="2.5"/>
+          <circle cx="48" cy="50" r="14" fill="rgba(168,85,247,0.5)" stroke="#d8b4fe" stroke-width="2"/>
+          <ellipse cx="28" cy="36" rx="7" ry="4" transform="rotate(-25 28 36)" fill="#fb923c"/>
+          <ellipse cx="70" cy="64" rx="7" ry="4" transform="rotate(25 70 64)" fill="#fb923c"/>
+        </svg>`,
+      plant_cell: `
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <polygon points="24,10 76,10 90,30 90,70 76,90 24,90 10,70 10,30" fill="rgba(16,185,129,0.2)" stroke="#10b981" stroke-width="3.5"/>
+          <ellipse cx="56" cy="54" rx="18" ry="22" fill="rgba(56,189,248,0.35)" stroke="#7dd3fc" stroke-width="1.8"/>
+          <circle cx="30" cy="35" r="10" fill="#a855f7"/>
+          <ellipse cx="28" cy="66" rx="8" ry="4.5" fill="#22c55e"/>
+          <ellipse cx="66" cy="24" rx="8" ry="4.5" fill="#22c55e"/>
+        </svg>`,
+      chloroplast: `
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <ellipse cx="50" cy="50" rx="38" ry="22" fill="rgba(34,197,94,0.25)" stroke="#4ade80" stroke-width="3"/>
+          <rect x="28" y="40" width="12" height="5" rx="2" fill="#22c55e"/>
+          <rect x="28" y="47" width="12" height="5" rx="2" fill="#22c55e"/>
+          <rect x="28" y="54" width="12" height="5" rx="2" fill="#22c55e"/>
+          <rect x="56" y="40" width="12" height="5" rx="2" fill="#22c55e"/>
+          <rect x="56" y="47" width="12" height="5" rx="2" fill="#22c55e"/>
+          <line x1="40" y1="49" x2="56" y2="49" stroke="#86efac" stroke-width="2"/>
+        </svg>`,
+      membrane: `
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <line x1="15" y1="35" x2="85" y2="35" stroke="#38bdf8" stroke-width="3" stroke-dasharray="8 6"/>
+          <line x1="15" y1="65" x2="85" y2="65" stroke="#38bdf8" stroke-width="3" stroke-dasharray="8 6"/>
+          <circle cx="50" cy="20" r="5" fill="#34d399"/>
+          <path d="M50,27 L50,73 M44,67 L50,73 L56,67" stroke="#34d399" stroke-width="2.5" fill="none"/>
+          <circle cx="72" cy="50" r="6" fill="#f43f5e"/>
+        </svg>`,
+      transport: `
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <line x1="50" y1="15" x2="50" y2="85" stroke="#94a3b8" stroke-width="2.5" stroke-dasharray="5 5"/>
+          <circle cx="22" cy="30" r="5" fill="#38bdf8"/>
+          <circle cx="34" cy="42" r="5" fill="#38bdf8"/>
+          <circle cx="20" cy="55" r="5" fill="#38bdf8"/>
+          <circle cx="32" cy="68" r="5" fill="#38bdf8"/>
+          <circle cx="25" cy="78" r="5" fill="#38bdf8"/>
+          <path d="M40,50 L62,50 M56,44 L62,50 L56,56" stroke="#fbbf24" stroke-width="2.5" fill="none"/>
+          <circle cx="75" cy="38" r="5" fill="#38bdf8"/>
+          <circle cx="78" cy="65" r="5" fill="#38bdf8"/>
+        </svg>`,
+      hierarchy: `
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <rect x="12" y="65" width="14" height="20" rx="3" fill="#38bdf8"/>
+          <rect x="30" y="52" width="14" height="33" rx="3" fill="#34d399"/>
+          <rect x="48" y="38" width="14" height="47" rx="3" fill="#a855f7"/>
+          <rect x="66" y="24" width="14" height="61" rx="3" fill="#fb923c"/>
+          <path d="M18,55 L74,16" stroke="#fde047" stroke-width="2" stroke-dasharray="3 3"/>
+        </svg>`
+    };
+
+    // ==========================================
+    // 2. QUESTION BANK (20 QUESTIONS, 4 TIERS)
+    // Strictly derived from 3.jpg content
+    // ==========================================
+    const QUESTION_BANK = [
+      // --- TIER 1: ง่าย / พื้นฐาน (5 ข้อ) ---
+      {
+        id: 1,
+        tier: 1,
+        tierLabel: "ระดับ 1: พื้นฐาน",
+        topic: "2.1 เซลล์: หน่วยพื้นฐานของสิ่งมีชีวิต",
+        specimen: "cell_basic",
+        question: "ข้อใดคือหน่วยโครงสร้างและหน่วยการทำงานที่เล็กที่สุดของสิ่งมีชีวิต?",
+        options: [
+          { text: "เซลล์ (Cell)", correct: true },
+          { text: "เนื้อเยื่อ (Tissue)", correct: false },
+          { text: "อวัยวะ (Organ)", correct: false },
+          { text: "โมเลกุล (Molecule)", correct: false }
+        ],
+        rationale: "เซลล์ (Cell) คือหน่วยโครงสร้างและหน่วยการทำงานที่เล็กที่สุดของสิ่งมีชีวิตที่ยังสามารถดำรงชีวิตอยู่ได้"
+      },
+      {
+        id: 2,
+        tier: 1,
+        tierLabel: "ระดับ 1: พื้นฐาน",
+        topic: "2.1.2 สิ่งมีชีวิตแบ่งตามจำนวนเซลล์",
+        specimen: "unicellular",
+        question: "สิ่งมีชีวิตกลุ่มใดต่อไปนี้จัดเป็นสิ่งมีชีวิตเซลล์เดียวทั้งหมด?",
+        options: [
+          { text: "อะมีบา พารามีเซียม แบคทีเรีย", correct: true },
+          { text: "อะมีบา ไส้เดือนดิน พารามีเซียม", correct: false },
+          { text: "แบคทีเรีย เห็ดรา มอสส์", correct: false },
+          { text: "พารามีเซียม ไฮดรา ฟองน้ำ", correct: false }
+        ],
+        rationale: "อะมีบา พารามีเซียม และแบคทีเรีย มีเซลล์เพียง 1 เซลล์ ซึ่งเซลล์เดียวนั้นทำหน้าที่ทุกอย่างในการดำรงชีวิต"
+      },
+      {
+        id: 3,
+        tier: 1,
+        tierLabel: "ระดับ 1: พื้นฐาน",
+        topic: "2.1.3 ประเภทของเซลล์",
+        specimen: "plant_cell",
+        question: "เมื่อส่องกล้องจุลทรรศน์พบเซลล์ที่มีรูปร่างค่อนข้างเป็นเหลี่ยม มีผนังเซลล์และคลอโรพลาสต์ เซลล์นี้คือเซลล์ชนิดใด?",
+        options: [
+          { text: "เซลล์พืช", correct: true },
+          { text: "เซลล์สัตว์", correct: false },
+          { text: "เซลล์เม็ดเลือดแดง", correct: false },
+          { text: "เซลล์ประสาท", correct: false }
+        ],
+        rationale: "เซลล์พืชมีลักษณะเด่นคือ มีผนังเซลล์ (Cell wall) มีคลอโรพลาสต์ (Chloroplast) และมีรูปร่างค่อนข้างเป็นเหลี่ยม"
+      },
+      {
+        id: 4,
+        tier: 1,
+        tierLabel: "ระดับ 1: พื้นฐาน",
+        topic: "2.1.4 ส่วนประกอบของเซลล์",
+        specimen: "membrane",
+        question: "โครงสร้างใดของเซลล์ทำหน้าที่ควบคุมการผ่านเข้า-ออกของสาร เปรียบเสมือน 'ประตูบ้าน'?",
+        options: [
+          { text: "เยื่อหุ้มเซลล์ (Cell membrane)", correct: true },
+          { text: "ผนังเซลล์ (Cell wall)", correct: false },
+          { text: "ไซโทพลาซึม (Cytoplasm)", correct: false },
+          { text: "แวคิวโอล (Vacuole)", correct: false }
+        ],
+        rationale: "เยื่อหุ้มเซลล์ (Cell membrane) ทำหน้าที่ควบคุมการเข้า-ออกของสารและป้องกันเซลล์ พบทั้งในเซลล์พืชและเซลล์สัตว์"
+      },
+      {
+        id: 5,
+        tier: 1,
+        tierLabel: "ระดับ 1: พื้นฐาน",
+        topic: "2.1.5 ความสัมพันธ์โครงสร้าง-หน้าที่",
+        specimen: "cell_basic",
+        question: "ส่วนประกอบใดภายในเซลล์ที่มีสารพันธุกรรม (DNA) และทำหน้าที่ควบคุมการทำงานทั้งหมดของเซลล์?",
+        options: [
+          { text: "นิวเคลียส (Nucleus)", correct: true },
+          { text: "คลอโรพลาสต์ (Chloroplast)", correct: false },
+          { text: "ไซโทพลาซึม (Cytoplasm)", correct: false },
+          { text: "แวคิวโอล (Vacuole)", correct: false }
+        ],
+        rationale: "นิวเคลียส (Nucleus) มีสารพันธุกรรม DNA ทำหน้าที่เป็นศูนย์กลางควบคุมกิจกรรมและการทำงานของเซลล์"
+      },
+
+      // --- TIER 2: ปานกลาง / เข้าใจโครงสร้าง (5 ข้อ) ---
+      {
+        id: 6,
+        tier: 2,
+        tierLabel: "ระดับ 2: ปานกลาง",
+        topic: "2.1.4 ส่วนประกอบของเซลล์",
+        specimen: "plant_cell",
+        question: "ข้อใดคือส่วนประกอบที่พบ 'เฉพาะในเซลล์พืช' แต่ไม่พบในเซลล์สัตว์?",
+        options: [
+          { text: "ผนังเซลล์ และ คลอโรพลาสต์", correct: true },
+          { text: "เยื่อหุ้มเซลล์ และ ไซโทพลาซึม", correct: false },
+          { text: "นิวเคลียส และ ไมโทคอนเดรีย", correct: false },
+          { text: "ไรโบโซม และ เยื่อหุ้มเซลล์", correct: false }
+        ],
+        rationale: "ผนังเซลล์ (Cell wall) และคลอโรพลาสต์ (Chloroplast) เป็นโครงสร้างที่พบเฉพาะในเซลล์พืช ไม่พบในเซลล์สัตว์"
+      },
+      {
+        id: 7,
+        tier: 2,
+        tierLabel: "ระดับ 2: ปานกลาง",
+        topic: "2.1.4 ส่วนประกอบของเซลล์",
+        specimen: "animal_cell",
+        question: "ปฏิกิริยาเคมีส่วนใหญ่ภายในเซลล์เกิดขึ้นที่บริเวณใด และเป็นที่อยู่ของออร์แกเนลล์ต่าง ๆ?",
+        options: [
+          { text: "ไซโทพลาซึม (Cytoplasm)", correct: true },
+          { text: "ผนังเซลล์ (Cell wall)", correct: false },
+          { text: "เยื่อหุ้มเซลล์ (Cell membrane)", correct: false },
+          { text: "นิวเคลียส (Nucleus)", correct: false }
+        ],
+        rationale: "ไซโทพลาซึม (Cytoplasm) เป็นของเหลวใสภายในเซลล์ เป็นที่อยู่ของออร์แกเนลล์และเป็นแหล่งเกิดปฏิกิริยาเคมีหลายอย่างในเซลล์"
+      },
+      {
+        id: 8,
+        tier: 2,
+        tierLabel: "ระดับ 2: ปานกลาง",
+        topic: "2.1.3 ประเภทของเซลล์",
+        specimen: "animal_cell",
+        question: "เหตุใดเซลล์สัตว์จึงมีรูปร่างที่ไม่แน่นอนแตกต่างจากเซลล์พืชที่มีรูปร่างเป็นเหลี่ยมชัดเจน?",
+        options: [
+          { text: "เซลล์สัตว์ไม่มีผนังเซลล์ช่วยคงรูปร่าง", correct: true },
+          { text: "เซลล์สัตว์ไม่มีเยื่อหุ้มเซลล์ห่อหุ้ม", correct: false },
+          { text: "เซลล์สัตว์ไม่มีไซโทพลาซึมอยู่ภายใน", correct: false },
+          { text: "เซลล์สัตว์มีคลอโรพลาสต์ขนาดใหญ่", correct: false }
+        ],
+        rationale: "เซลล์สัตว์ไม่มีผนังเซลล์ (Cell wall) มีเพียงเยื่อหุ้มเซลล์ที่อ่อนนุ่ม ทำให้รูปร่างของเซลล์สัตว์ไม่แน่นอน"
+      },
+      {
+        id: 9,
+        tier: 2,
+        tierLabel: "ระดับ 2: ปานกลาง",
+        topic: "2.1.4 ส่วนประกอบของเซลล์",
+        specimen: "chloroplast",
+        question: "ออร์แกเนลล์ใดมีรงควัตถุสีเขียว ทำหน้าที่สังเคราะห์ด้วยแสงเพื่อสร้างอาหารให้แก่พืช?",
+        options: [
+          { text: "คลอโรพลาสต์ (Chloroplast)", correct: true },
+          { text: "ไมโทคอนเดรีย (Mitochondria)", correct: false },
+          { text: "กอลจิแอปพาราตัส (Golgi apparatus)", correct: false },
+          { text: "ไลโซโซม (Lysosome)", correct: false }
+        ],
+        rationale: "คลอโรพลาสต์ (Chloroplast) มีรงควัตถุคลอโรฟิลล์ ทำหน้าที่สังเคราะห์ด้วยแสงเพื่อสร้างอาหารให้พืช"
+      },
+      {
+        id: 10,
+        tier: 2,
+        tierLabel: "ระดับ 2: ปานกลาง",
+        topic: "2.2 ระดับโครงสร้างของสิ่งมีชีวิต",
+        specimen: "hierarchy",
+        question: "ข้อใดเรียงลำดับการจัดระบบโครงสร้างของสิ่งมีชีวิตจาก 'เล็กไปใหญ่' ได้ถูกต้อง?",
+        options: [
+          { text: "เซลล์ → เนื้อเยื่อ → อวัยวะ → ระบบอวัยวะ → สิ่งมีชีวิต", correct: true },
+          { text: "เซลล์ → อวัยวะ → เนื้อเยื่อ → ระบบอวัยวะ → สิ่งมีชีวิต", correct: false },
+          { text: "เนื้อเยื่อ → เซลล์ → อวัยวะ → ระบบอวัยวะ → สิ่งมีชีวิต", correct: false },
+          { text: "เซลล์ → เนื้อเยื่อ → ระบบอวัยวะ → อวัยวะ → สิ่งมีชีวิต", correct: false }
+        ],
+        rationale: "ลำดับโครงสร้างของสิ่งมีชีวิตหลายเซลล์จากเล็กไปใหญ่คือ เซลล์ → เนื้อเยื่อ → อวัยวะ → ระบบอวัยวะ → สิ่งมีชีวิต"
+      },
+
+      // --- TIER 3: ค่อนข้างยาก / เชื่อมโยงหน้าที่ (5 ข้อ) ---
+      {
+        id: 11,
+        tier: 3,
+        tierLabel: "ระดับ 3: ค่อนข้างยาก",
+        topic: "2.1.2 สิ่งมีชีวิตแบ่งตามจำนวนเซลล์",
+        specimen: "unicellular",
+        question: "เพราะเหตุใดสิ่งมีชีวิตเซลล์เดียว เช่น อะมีบา จึงไม่มี 'เนื้อเยื่อ' เหมือนในร่างกายมนุษย์?",
+        options: [
+          { text: "มีเพียง 1 เซลล์ที่ทำหน้าที่ทุกอย่าง จึงไม่มีกลุ่มเซลล์มารวมกัน", correct: true },
+          { text: "เซลล์ของอะมีบาไม่มีเยื่อหุ้มเซลล์และไม่มีนิวเคลียส", correct: false },
+          { text: "อะมีบามีผนังเซลล์หนาจึงไม่สามารถแบ่งเซลล์เพิ่มได้", correct: false },
+          { text: "อะมีบาสร้างอาหารเองได้จึงไม่จำเป็นต้องมีเนื้อเยื่อ", correct: false }
+        ],
+        rationale: "เนื้อเยื่อเกิดจากเซลล์หลายเซลล์ที่ทำหน้าที่เฉพาะมารวมกลุ่มกัน แต่สิ่งมีชีวิตเซลล์เดียวมีเพียง 1 เซลล์ จึงไม่มีระดับเนื้อเยื่อ"
+      },
+      {
+        id: 12,
+        tier: 3,
+        tierLabel: "ระดับ 3: ค่อนข้างยาก",
+        topic: "2.1.6 การลำเลียงสารเข้าออกเซลล์",
+        specimen: "transport",
+        question: "การฉีดน้ำหอมที่มุมห้องแล้วกลิ่นน้ำหอมค่อย ๆ กระจายไปทั่วห้อง จัดเป็นกระบวนการลำเลียงสารแบบใด?",
+        options: [
+          { text: "การแพร่ (Diffusion) จากบริเวณความเข้มข้นมากไปน้อย", correct: true },
+          { text: "ออสโมซิส (Osmosis) จากบริเวณความเข้มข้นน้อยไปมาก", correct: false },
+          { text: "การแพร่ (Diffusion) โดยใช้พลังงานจากไมโทคอนเดรีย", correct: false },
+          { text: "ออสโมซิส (Osmosis) ผ่านเยื่อเลือกผ่านของเซลล์", correct: false }
+        ],
+        rationale: "การกระจายของกลิ่นน้ำหอมเป็นการแพร่ (Diffusion) ซึ่งอนุภาคของสารเคลื่อนที่จากบริเวณที่มีความเข้มข้นมากไปน้อยโดยไม่ใช้พลังงาน"
+      },
+      {
+        id: 13,
+        tier: 3,
+        tierLabel: "ระดับ 3: ค่อนข้างยาก",
+        topic: "2.1.6 การลำเลียงสารเข้าออกเซลล์",
+        specimen: "membrane",
+        question: "ความแตกต่างที่สำคัญที่สุดระหว่าง 'การแพร่ (Diffusion)' กับ 'ออสโมซิส (Osmosis)' คือข้อใด?",
+        options: [
+          { text: "ออสโมซิสเป็นการเคลื่อนที่ของ 'น้ำ' ผ่านเยื่อเลือกผ่านเท่านั้น", correct: true },
+          { text: "ออสโมซิสต้องใช้พลังงานในการลำเลียงสาร แต่การแพร่ไม่ใช้", correct: false },
+          { text: "การแพร่เกิดขึ้นเฉพาะในเซลล์พืช ส่วนออสโมซิสเกิดในเซลล์สัตว์", correct: false },
+          { text: "ออสโมซิสเคลื่อนที่จากความเข้มข้นมากไปน้อย แต่การแพร่กลับกัน", correct: false }
+        ],
+        rationale: "ออสโมซิส (Osmosis) เป็นการเคลื่อนที่ของโมเลกุล 'น้ำ' จากบริเวณที่มีน้ำมากไปน้ำน้อยผ่านเยื่อเลือกผ่าน (Semipermeable membrane)"
+      },
+      {
+        id: 14,
+        tier: 3,
+        tierLabel: "ระดับ 3: ค่อนข้างยาก",
+        topic: "2.1.4 ส่วนประกอบของเซลล์",
+        specimen: "plant_cell",
+        question: "เมื่อต้นไม้ขาดน้ำเป็นเวลานาน ใบพืชจะแสดงอาการเหี่ยวเฉา เหตุการณ์นี้สัมพันธ์กับการเปลี่ยนแปลงของโครงสร้างใดมากที่สุด?",
+        options: [
+          { text: "แวคิวโอล (Vacuole) สูญเสียน้ำและมีขนาดเล็กลง", correct: true },
+          { text: "นิวเคลียส (Nucleus) หดตัวและหยุดสร้างสารพันธุกรรม", correct: false },
+          { text: "ผนังเซลล์ (Cell wall) สลายตัวหายไปชั่วคราว", correct: false },
+          { text: "คลอโรพลาสต์ (Chloroplast) เปลี่ยนเป็นไมโทคอนเดรีย", correct: false }
+        ],
+        rationale: "แวคิวโอล (Vacuole) ในเซลล์พืชทำหน้าที่เก็บน้ำและรักษาความเต่งตึง เมื่อพืชขาดน้ำ แวคิวโอลจะเล็กลงทำให้เซลล์สูญเสียความเต่งและเหี่ยว"
+      },
+      {
+        id: 15,
+        tier: 3,
+        tierLabel: "ระดับ 3: ค่อนข้างยาก",
+        topic: "2.2 ระดับโครงสร้างของสิ่งมีชีวิต",
+        specimen: "hierarchy",
+        question: "พิจารณาโครงสร้างต่อไปนี้: 'เซลล์กล้ามเนื้อหัวใจ, เนื้อเยื่อกล้ามเนื้อหัวใจ, หัวใจ, ระบบไหลเวียนเลือด' โครงสร้างใดมีความซับซ้อนมากที่สุด?",
+        options: [
+          { text: "ระบบไหลเวียนเลือด", correct: true },
+          { text: "หัวใจ", correct: false },
+          { text: "เนื้อเยื่อกล้ามเนื้อหัวใจ", correct: false },
+          { text: "เซลล์กล้ามเนื้อหัวใจ", correct: false }
+        ],
+        rationale: "ระบบไหลเวียนเลือดเป็นระดับ 'ระบบอวัยวะ' ซึ่งประกอบด้วยอวัยวะหลายส่วนทำงานร่วมกัน จึงมีความซับซ้อนมากที่สุดในตัวเลือก"
+      },
+
+      // --- TIER 4: ยาก / วิเคราะห์ประยุกต์แนว O-NET (5 ข้อ) ---
+      {
+        id: 16,
+        tier: 4,
+        tierLabel: "ระดับ 4: วิเคราะห์ขั้นสูง",
+        topic: "2.1.6 การลำเลียงสารเข้าออกเซลล์",
+        specimen: "transport",
+        question: "หากนำเซลล์พืชไปแช่ใน 'สารละลายน้ำเกลือเข้มข้น' เป็นเวลา 15 นาที จะเกิดการเปลี่ยนแปลงกับเซลล์พืชอย่างไร?",
+        options: [
+          { text: "น้ำออสโมซิสออกจากเซลล์ ทำให้ไซโทพลาซึมหดตัวและเซลล์เหี่ยว", correct: true },
+          { text: "น้ำออสโมซิสเข้าสู่เซลล์ ทำให้เซลล์เต่งพองและแตกออกทันที", correct: false },
+          { text: "เกลือแพร่เข้าสู่แวคิวโอล ทำให้คลอโรพลาสต์ขยายใหญ่ขึ้น", correct: false },
+          { text: "น้ำออสโมซิสเข้าสู่เซลล์ ทำให้ผนังเซลล์ยืดขยายออกจนกลม", correct: false }
+        ],
+        rationale: "น้ำเกลือเข้มข้นมีความเข้มข้นของน้ำต่ำกว่าภายในเซลล์ น้ำจึงออสโมซิสออกจากเซลล์พืช ทำให้เยื่อหุ้มเซลล์และไซโทพลาซึมหดตัว (เซลล์เหี่ยว)"
+      },
+      {
+        id: 17,
+        tier: 4,
+        tierLabel: "ระดับ 4: วิเคราะห์ขั้นสูง",
+        topic: "2.1.5 ความสัมพันธ์โครงสร้าง-หน้าที่",
+        specimen: "plant_cell",
+        question: "หากนำเซลล์สัตว์ไปแช่ในน้ำกลั่นบริสุทธิ์ เซลล์สัตว์อาจแตกได้ แต่เมื่อนำเซลล์พืชไปแช่ในน้ำกลั่นบริสุทธิ์ เซลล์พืชเพียงแค่เต่งพองแต่ไม่แตก เพราะเหตุใด?",
+        options: [
+          { text: "เซลล์พืชมีผนังเซลล์ที่แข็งแรงช่วยต้านแรงดันน้ำไว้", correct: true },
+          { text: "เซลล์พืชไม่มีเยื่อหุ้มเซลล์ น้ำจึงไม่สามารถผ่านเข้าไปได้", correct: false },
+          { text: "คลอโรพลาสต์ในเซลล์พืชดูดซับน้ำส่วนเกินไปใช้สังเคราะห์แสงทั้งหมด", correct: false },
+          { text: "นิวเคลียสของเซลล์พืชสั่งปิดรูบนผนังเซลล์ไม่ให้น้ำออสโมซิสเข้า", correct: false }
+        ],
+        rationale: "เซลล์พืชมีผนังเซลล์ (Cell wall) ที่แข็งแรงคอยพยุงและต้านทานแรงดันเต่งจากน้ำที่ออสโมซิสเข้ามา ทำให้เซลล์พืชเต่งตึงแต่ไม่แตก"
+      },
+      {
+        id: 18,
+        tier: 4,
+        tierLabel: "ระดับ 4: วิเคราะห์ขั้นสูง",
+        topic: "2.1.4 ส่วนประกอบของเซลล์",
+        specimen: "chloroplast",
+        question: "นักวิทยาศาสตร์ค้นพบสิ่งมีชีวิตชนิดใหม่ใต้ทะเลลึกที่ไม่มีแสงสว่างส่องถึง เมื่อส่องกล้องดูเซลล์พบว่ามีผนังเซลล์ แต่ไม่มีคลอโรพลาสต์ ข้อสรุปใดถูกต้องที่สุด?",
+        options: [
+          { text: "ไม่สามารถสร้างอาหารเองด้วยกระบวนการสังเคราะห์ด้วยแสงได้", correct: true },
+          { text: "ไม่จัดเป็นสิ่งมีชีวิตเพราะขาดออร์แกเนลล์ที่จำเป็นต่อการดำรงชีวิต", correct: false },
+          { text: "จัดเป็นเซลล์สัตว์ที่มีวิวัฒนาการสร้างผนังเซลล์ขึ้นมาห่อหุ้ม", correct: false },
+          { text: "ไม่สามารถควบคุมการผ่านเข้า-ออกของสารผ่านเยื่อหุ้มเซลล์ได้", correct: false }
+        ],
+        rationale: "คลอโรพลาสต์ทำหน้าที่สังเคราะห์ด้วยแสงสร้างอาหาร ดังนั้นสิ่งมีชีวิตที่ไม่มีคลอโรพลาสต์จึงไม่สามารถสร้างอาหารเองด้วยแสงได้"
+      },
+      {
+        id: 19,
+        tier: 4,
+        tierLabel: "ระดับ 4: วิเคราะห์ขั้นสูง",
+        topic: "2.1.2 สิ่งมีชีวิตแบ่งตามจำนวนเซลล์",
+        specimen: "multicellular",
+        question: "แนวคิด 'เซลล์ยิ่งทำงานเฉพาะทาง → สิ่งมีชีวิตยิ่งซับซ้อน' สอดคล้องกับสิ่งมีชีวิตในข้อใดมากที่สุด?",
+        options: [
+          { text: "มนุษย์มีเซลล์ประสาท เซลล์กล้ามเนื้อ และเซลล์เม็ดเลือดที่ทำหน้าที่ต่างกัน", correct: true },
+          { text: "พารามีเซียมใช้ขนรอบเซลล์ในการเคลื่อนที่และรับอาหารเข้าสู่เซลล์", correct: false },
+          { text: "แบคทีเรียสามารถแบ่งตัวเพิ่มจำนวนจาก 1 เซลล์เป็น 2 เซลล์ได้อย่างรวดเร็ว", correct: false },
+          { text: "อะมีบาใช้เท้าเทียมโอบล้อมอาหารและย่อยอาหารภายในเซลล์เดียวกัน", correct: false }
+        ],
+        rationale: "สิ่งมีชีวิตหลายเซลล์ที่ซับซ้อน เช่น มนุษย์ จะมีการแบ่งหน้าที่การทำงานของเซลล์เฉพาะทางอย่างชัดเจน (เช่น เซลล์ประสาท เซลล์กล้ามเนื้อ)"
+      },
+      {
+        id: 20,
+        tier: 4,
+        tierLabel: "ระดับ 4: วิเคราะห์ขั้นสูง",
+        topic: "2.1.4 ส่วนประกอบของเซลล์ (ข้อควรระวัง)",
+        specimen: "membrane",
+        question: "นักเรียนคนหนึ่งกล่าวว่า 'ผนังเซลล์ของพืชทำหน้าที่คัดเลือกสารที่จำเป็นเข้าสู่เซลล์ ส่วนเยื่อหุ้มเซลล์ทำให้เซลล์แข็งแรง' คำกล่าวนี้ผิดพลาดอย่างไร?",
+        options: [
+          { text: "สลับหน้าที่กัน เยื่อหุ้มเซลล์ควบคุมการเข้า-ออกของสาร ส่วนผนังเซลล์ให้ความแข็งแรง", correct: true },
+          { text: "เซลล์พืชมีเฉพาะผนังเซลล์เท่านั้น ไม่มีเยื่อหุ้มเซลล์อยู่ด้านใน", correct: false },
+          { text: "ทั้งผนังเซลล์และเยื่อหุ้มเซลล์ต่างทำหน้าที่สังเคราะห์ด้วยแสงเหมือนกัน", correct: false },
+          { text: "เยื่อหุ้มเซลล์พบเฉพาะในเซลล์สัตว์ ส่วนผนังเซลล์พบเฉพาะในเซลล์พืช", correct: false }
+        ],
+        rationale: "จุดหลอกที่พบบ่อยคือการสลับหน้าที่ระหว่าง 'ผนังเซลล์' (ให้ความแข็งแรง คงรูปร่าง) กับ 'เยื่อหุ้มเซลล์' (ควบคุมการเข้า-ออกของสาร)"
+      }
+    ];
+
+    // ==========================================
+    // 3. GAME STATE & AUDIO SYNTHESIZER
+    // ==========================================
+    let gameQuestions = [];
+    let currentIdx = 0;
+    let baseScore = 0;
+    let bonusScore = 0;
+    let streak = 0;
+    let maxStreak = 0;
+    let correctCount = 0;
+    let totalTimeSpent = 0;
+    let timeLeft = 60;
+    let timerInterval = null;
+    let isAnswered = false;
+    let userHistory = [];
+    let soundEnabled = true;
+    let cameraStream = null;
+    let isCameraActive = false;
+
+    // Web Audio API Sound Effects
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playTone(freq, type, duration, delay = 0) {
+      if (!soundEnabled) return;
+      try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delay);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + delay);
+        osc.stop(audioCtx.currentTime + delay + duration);
+      } catch (e) {}
+    }
+
+    function playCorrectSound() {
+      playTone(523.25, 'sine', 0.15, 0);
+      playTone(659.25, 'sine', 0.15, 0.1);
+      playTone(783.99, 'triangle', 0.28, 0.2);
+    }
+
+    function playWrongSound() {
+      playTone(220, 'sawtooth', 0.2, 0);
+      playTone(175, 'sawtooth', 0.3, 0.15);
+    }
+
+    function playTickSound() {
+      playTone(880, 'sine', 0.05, 0);
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      document.getElementById('sound-on-icon').classList.toggle('hidden', !soundEnabled);
+      document.getElementById('sound-off-icon').classList.toggle('hidden', soundEnabled);
+    }
+
+    // ==========================================
+    // 4. AR CAMERA & PARTICLE BACKGROUND
+    // ==========================================
+    async function toggleARCamera(forceEnable = null) {
+      const videoEl = document.getElementById('ar-video');
+      const statusDot = document.getElementById('ar-status-dot');
+      const statusText = document.getElementById('ar-status-text');
+      const btnLabel = document.getElementById('camera-btn-label');
+
+      const shouldEnable = forceEnable !== null ? forceEnable : !isCameraActive;
+
+      if (shouldEnable) {
+        try {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error("Camera API not supported");
+          }
+          cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' },
+            audio: false
+          });
+          videoEl.srcObject = cameraStream;
+          videoEl.classList.remove('hidden');
+          isCameraActive = true;
+          statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping";
+          statusText.textContent = "AR Camera LIVE";
+          btnLabel.textContent = "ปิดกล้อง AR";
+        } catch (err) {
+          isCameraActive = false;
+          videoEl.classList.add('hidden');
+          statusDot.className = "w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse";
+          statusText.textContent = "AR Holo-Lab (จำลอง 3D)";
+          btnLabel.textContent = "เปิดกล้อง AR";
+        }
+      } else {
+        if (cameraStream) {
+          cameraStream.getTracks().forEach(track => track.stop());
+          cameraStream = null;
+        }
+        videoEl.srcObject = null;
+        videoEl.classList.add('hidden');
+        isCameraActive = false;
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse";
+        statusText.textContent = "AR Holo-Lab พร้อมใช้งาน";
+        btnLabel.textContent = "เปิดกล้อง AR";
+      }
+    }
+
+    // ==========================================
+    // 5. SHUFFLE & PROGRESSIVE DIFFICULTY LOGIC
+    // ==========================================
+    function shuffleArray(arr) {
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function buildShuffledQuiz() {
+      // Group by difficulty tier (1 -> 2 -> 3 -> 4), shuffle within each tier,
+      // and shuffle the 4 choices of every single question!
+      let finalQuestions = [];
+      for (let t = 1; t <= 4; t++) {
+        const tierQuestions = QUESTION_BANK.filter(q => q.tier === t);
+        const shuffledTier = shuffleArray(tierQuestions).map(q => ({
+          ...q,
+          shuffledOptions: shuffleArray(q.options)
+        }));
+        finalQuestions = finalQuestions.concat(shuffledTier);
+      }
+      return finalQuestions;
+    }
+
+    // ==========================================
+    // 6. CORE GAMEPLAY FUNCTIONS
+    // ==========================================
+    async function startGame(useCamera) {
+      if (useCamera) {
+        await toggleARCamera(true);
+      }
+      resetAndBegin();
+    }
+
+    function restartGame() {
+      document.getElementById('review-section').classList.add('hidden');
+      resetAndBegin();
+    }
+
+    function resetAndBegin() {
+      gameQuestions = buildShuffledQuiz();
+      currentIdx = 0;
+      baseScore = 0;
+      bonusScore = 0;
+      streak = 0;
+      maxStreak = 0;
+      correctCount = 0;
+      totalTimeSpent = 0;
+      userHistory = [];
+
+      document.getElementById('start-screen').classList.add('hidden');
+      document.getElementById('summary-screen').classList.add('hidden');
+      document.getElementById('quiz-screen').classList.remove('hidden');
+
+      updateHUDScore();
+      loadQuestion();
+    }
+
+    function updateHUDScore() {
+      document.getElementById('live-score').textContent = (baseScore + bonusScore).toLocaleString();
+      document.getElementById('streak-count').textContent = streak;
+    }
+
+    function loadQuestion() {
+      clearInterval(timerInterval);
+      isAnswered = false;
+      timeLeft = 60;
+
+      const q = gameQuestions[currentIdx];
+      document.getElementById('q-current').textContent = currentIdx + 1;
+      document.getElementById('topic-tag').textContent = `หมวด: ${q.topic}`;
+      document.getElementById('question-text').textContent = q.question;
+      document.getElementById('ar-specimen-svg').innerHTML = SPECIMENS[q.specimen] || SPECIMENS.cell_basic;
+
+      // Difficulty badge styling
+      const diffBadge = document.getElementById('difficulty-badge');
+      diffBadge.textContent = q.tierLabel;
+      const tierColors = {
+        1: "bg-emerald-500/20 text-emerald-300 border-emerald-400/30",
+        2: "bg-sky-500/20 text-sky-300 border-sky-400/30",
+        3: "bg-amber-500/20 text-amber-300 border-amber-400/30",
+        4: "bg-rose-500/20 text-rose-300 border-rose-400/30"
+      };
+      diffBadge.className = `px-2.5 py-1 rounded-xl text-xs font-semibold border ${tierColors[q.tier]}`;
+
+      // Render 4 Shuffled Options
+      const optionsContainer = document.getElementById('options-container');
+      optionsContainer.innerHTML = '';
+      const choiceLabels = ['ก', 'ข', 'ค', 'ง'];
+
+      q.shuffledOptions.forEach((opt, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'holo-btn w-full text-left p-3.5 md:p-4 rounded-2xl flex items-center gap-3 cursor-pointer group';
+        btn.innerHTML = `
+          <span class="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 font-bold text-sm flex items-center justify-center shrink-0 group-hover:bg-cyan-400 group-hover:text-slate-950 transition">
+            ${choiceLabels[idx]}
+          </span>
+          <span class="text-sm md:text-base text-slate-100 font-normal leading-snug">${opt.text}</span>
+        `;
+        btn.onclick = () => selectAnswer(idx);
+        optionsContainer.appendChild(btn);
+      });
+
+      document.getElementById('feedback-box').classList.add('hidden');
+      startTimer();
+    }
+
+    function startTimer() {
+      updateTimerDisplay();
+      timerInterval = setInterval(() => {
+        timeLeft--;
+        updateTimerDisplay();
+
+        if (timeLeft <= 10 && timeLeft > 0) {
+          playTickSound();
+        }
+
+        if (timeLeft <= 0) {
+          clearInterval(timerInterval);
+          handleTimeout();
+        }
+      }, 1000);
+    }
+
+    function updateTimerDisplay() {
+      const secs = Math.max(0, timeLeft);
+      const formatted = secs === 60 ? "01:00" : `00:${secs < 10 ? '0' : ''}${secs}`;
+      const timerText = document.getElementById('timer-text');
+      const timerBar = document.getElementById('timer-bar');
+
+      timerText.textContent = formatted;
+      const pct = (secs / 60) * 100;
+      timerBar.style.width = `${pct}%`;
+
+      if (secs <= 10) {
+        timerText.className = "font-bold text-sm text-rose-400 animate-pulse";
+        timerBar.className = "h-full bg-rose-500 transition-all duration-300";
+      } else if (secs <= 25) {
+        timerText.className = "font-bold text-sm text-amber-300";
+        timerBar.className = "h-full bg-amber-400 transition-all duration-300";
+      } else {
+        timerText.className = "font-bold text-sm text-cyan-200";
+        timerBar.className = "h-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-sky-400 transition-all duration-300";
+      }
+    }
+
+    function selectAnswer(selectedIdx) {
+      if (isAnswered) return;
+      isAnswered = true;
+      clearInterval(timerInterval);
+
+      const q = gameQuestions[currentIdx];
+      const timeUsed = 60 - timeLeft;
+      totalTimeSpent += timeUsed;
+
+      const selectedOpt = q.shuffledOptions[selectedIdx];
+      const isCorrect = selectedOpt.correct;
+      const optionButtons = document.getElementById('options-container').children;
+
+      // Disable all buttons and highlight correct/wrong
+      for (let i = 0; i < optionButtons.length; i++) {
+        optionButtons[i].disabled = true;
+        if (q.shuffledOptions[i].correct) {
+          optionButtons[i].classList.add('option-correct');
+        } else if (i === selectedIdx && !isCorrect) {
+          optionButtons[i].classList.add('option-wrong');
+        }
+      }
+
+      let earnedBase = 0;
+      let earnedBonus = 0;
+
+      if (isCorrect) {
+        playCorrectSound();
+        correctCount++;
+        streak++;
+        if (streak > maxStreak) maxStreak = streak;
+
+        earnedBase = 100;
+        const speedBonus = Math.round((timeLeft / 60) * 50); // Up to +50 pts for fast answer
+        const comboBonus = streak >= 2 ? (streak - 1) * 20 : 0; // +20 pts per consecutive streak
+        earnedBonus = speedBonus + comboBonus;
+
+        baseScore += earnedBase;
+        bonusScore += earnedBonus;
+      } else {
+        playWrongSound();
+        streak = 0;
+      }
+
+      updateHUDScore();
+
+      // Save to history for summary review
+      const correctOpt = q.shuffledOptions.find(o => o.correct);
+      userHistory.push({
+        questionNum: currentIdx + 1,
+        tier: q.tier,
+        tierLabel: q.tierLabel,
+        question: q.question,
+        userAnswer: selectedOpt.text,
+        correctAnswer: correctOpt.text,
+        isCorrect: isCorrect,
+        rationale: q.rationale,
+        timeUsed: timeUsed,
+        earnedPoints: earnedBase + earnedBonus
+      });
+
+      showFeedback(isCorrect, earnedBonus, q.rationale, false);
+    }
+
+    function handleTimeout() {
+      if (isAnswered) return;
+      isAnswered = true;
+      playWrongSound();
+
+      const q = gameQuestions[currentIdx];
+      totalTimeSpent += 60;
+      streak = 0;
+      updateHUDScore();
+
+      const optionButtons = document.getElementById('options-container').children;
+      for (let i = 0; i < optionButtons.length; i++) {
+        optionButtons[i].disabled = true;
+        if (q.shuffledOptions[i].correct) {
+          optionButtons[i].classList.add('option-correct');
+        }
+      }
+
+      const correctOpt = q.shuffledOptions.find(o => o.correct);
+      userHistory.push({
+        questionNum: currentIdx + 1,
+        tier: q.tier,
+        tierLabel: q.tierLabel,
+        question: q.question,
+        userAnswer: "หมดเวลา (ไม่ได้ตอบ)",
+        correctAnswer: correctOpt.text,
+        isCorrect: false,
+        rationale: q.rationale,
+        timeUsed: 60,
+        earnedPoints: 0
+      });
+
+      showFeedback(false, 0, q.rationale, true);
+    }
+
+    function showFeedback(isCorrect, earnedBonus, rationale, isTimeout) {
+      const box = document.getElementById('feedback-box');
+      const title = document.getElementById('feedback-title');
+      const bonusBadge = document.getElementById('bonus-earned-badge');
+      const rationaleEl = document.getElementById('feedback-rationale');
+      const nextBtnText = document.getElementById('next-btn-text');
+
+      box.classList.remove('hidden', 'bg-emerald-950/75', 'border-emerald-400/50', 'bg-rose-950/75', 'border-rose-400/50');
+
+      if (isCorrect) {
+        box.classList.add('bg-emerald-950/75', 'border-emerald-400/50');
+        title.className = "font-bold text-base text-emerald-300";
+        title.textContent = `✅ ถูกต้อง! +100 คะแนน`;
+        if (earnedBonus > 0) {
+          bonusBadge.classList.remove('hidden');
+          bonusBadge.textContent = `⚡ โบนัส +${earnedBonus} คะแนน!`;
+        } else {
+          bonusBadge.classList.add('hidden');
+        }
+      } else {
+        box.classList.add('bg-rose-950/75', 'border-rose-400/50');
+        title.className = "font-bold text-base text-rose-300";
+        title.textContent = isTimeout ? "⏰ หมดเวลา 1 นาที!" : "❌ ยังไม่ถูกต้อง!";
+        bonusBadge.classList.add('hidden');
+      }
+
+      rationaleEl.textContent = rationale;
+      nextBtnText.textContent = currentIdx === 19 ? "ดูสรุปผลคะแนน" : "ข้อถัดไป";
+    }
+
+    function nextQuestion() {
+      if (currentIdx < gameQuestions.length - 1) {
+        currentIdx++;
+        loadQuestion();
+      } else {
+        showSummary();
+      }
+    }
+
+    // ==========================================
+    // 7. SUMMARY & DETAILED REVIEW
+    // ==========================================
+    function showSummary() {
+      clearInterval(timerInterval);
+      document.getElementById('quiz-screen').classList.add('hidden');
+      document.getElementById('summary-screen').classList.remove('hidden');
+
+      const totalFinal = baseScore + bonusScore;
+      const avgTime = Math.round(totalTimeSpent / 20);
+
+      document.getElementById('final-total-score').textContent = totalFinal.toLocaleString();
+      document.getElementById('final-base-score').textContent = baseScore.toLocaleString();
+      document.getElementById('final-bonus-score').textContent = `+${bonusScore.toLocaleString()}`;
+      document.getElementById('final-correct').textContent = correctCount;
+      document.getElementById('final-max-streak').textContent = maxStreak;
+      document.getElementById('final-avg-time').textContent = avgTime;
+
+      // Rank Evaluation
+      const rankTitle = document.getElementById('rank-title');
+      const rankBadge = document.getElementById('rank-badge');
+      if (correctCount >= 18) {
+        rankBadge.textContent = "ระดับ S • ปรมาจารย์ชีววิทยา AR";
+        rankTitle.textContent = "ยอดเยี่ยมไร้ที่ติ! สอบผ่านฉลุยแน่นอน";
+      } else if (correctCount >= 14) {
+        rankBadge.textContent = "ระดับ A • นักวิจัยเซลล์มือโปร";
+        rankTitle.textContent = "เก่งมาก! เข้าใจโครงสร้างและหน้าที่ของเซลล์ดีเยี่ยม";
+      } else if (correctCount >= 10) {
+        rankBadge.textContent = "ระดับ B • นักสำรวจโลกจุลทรรศน์";
+        rankTitle.textContent = "ทำได้ดี! ทบทวนจุดที่พลาดอีกนิดจะแม่นยำขึ้น";
+      } else {
+        rankBadge.textContent = "ระดับ C • นักเรียนฝึกหัดห้องแล็บ AR";
+        rankTitle.textContent = "เริ่มต้นได้ดี! ลองทบทวนเฉลยแล้วเข้าสอบใหม่อีกครั้งนะ";
+      }
+
+      // Breakdown by Difficulty Tier
+      const tierBreakdownEl = document.getElementById('tier-breakdown');
+      tierBreakdownEl.innerHTML = '';
+      const tierNames = [
+        { t: 1, name: "ระดับ 1: พื้นฐาน (ข้อ 1-5)", color: "bg-emerald-400" },
+        { t: 2, name: "ระดับ 2: ปานกลาง (ข้อ 6-10)", color: "bg-sky-400" },
+        { t: 3, name: "ระดับ 3: ค่อนข้างยาก (ข้อ 11-15)", color: "bg-amber-400" },
+        { t: 4, name: "ระดับ 4: วิเคราะห์ขั้นสูง (ข้อ 16-20)", color: "bg-rose-400" }
+      ];
+
+      tierNames.forEach(item => {
+        const tierItems = userHistory.filter(h => h.tier === item.t);
+        const tierCorrect = tierItems.filter(h => h.isCorrect).length;
+        const pct = (tierCorrect / 5) * 100;
+        tierBreakdownEl.innerHTML += `
+          <div>
+            <div class="flex justify-between text-slate-200 mb-1">
+              <span>${item.name}</span>
+              <span class="font-bold">${tierCorrect} / 5 ข้อ</span>
+            </div>
+            <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div class="h-full ${item.color}" style="width: ${pct}%"></div>
+            </div>
+          </div>
+        `;
+      });
+
+      // Populate Review List
+      const reviewList = document.getElementById('review-list');
+      reviewList.innerHTML = '';
+      userHistory.forEach(item => {
+        const borderClass = item.isCorrect ? 'border-emerald-500/40 bg-emerald-950/25' : 'border-rose-500/40 bg-rose-950/25';
+        const statusIcon = item.isCorrect ? '✅' : '❌';
+        reviewList.innerHTML += `
+          <div class="p-3.5 rounded-2xl border ${borderClass} text-left text-sm">
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <span class="font-bold text-cyan-300">ข้อ ${item.questionNum} <span class="text-xs font-normal text-slate-400">(${item.tierLabel})</span></span>
+              <span class="text-xs font-semibold ${item.isCorrect ? 'text-emerald-400' : 'text-rose-400'}">${statusIcon} +${item.earnedPoints} คะแนน (${item.timeUsed} วิ)</span>
+            </div>
+            <p class="text-white font-medium mb-2">${item.question}</p>
+            <div class="text-xs space-y-1">
+              <div class="${item.isCorrect ? 'text-emerald-300' : 'text-rose-300'}">คำตอบของคุณ: <strong>${item.userAnswer}</strong></div>
+              ${!item.isCorrect ? `<div class="text-emerald-300">คำตอบที่ถูกต้อง: <strong>${item.correctAnswer}</strong></div>` : ''}
+              <div class="text-slate-300 pt-1 border-t border-slate-700/60 mt-1">💡 ${item.rationale}</div>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    function toggleReviewList() {
+      const sec = document.getElementById('review-section');
+      sec.classList.toggle('hidden');
+      if (!sec.classList.contains('hidden')) {
+        sec.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  </script>
+</body>
+</html>
